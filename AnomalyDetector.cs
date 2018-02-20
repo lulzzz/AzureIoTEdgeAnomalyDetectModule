@@ -1,3 +1,5 @@
+using System;
+
 namespace AzureIoTEdgeAnomalyDetectModule
 {
     public class AnomalyDetector{
@@ -17,7 +19,8 @@ namespace AzureIoTEdgeAnomalyDetectModule
         }
 
         public bool IsAnomaly(double temp, double hum){
-            return false;
+            return Math.Abs(temp-tempMean) > (3 * tempStdDev) || 
+                Math.Abs(hum - humMean) > (3 * humStdDev);
         }
     }
 }
