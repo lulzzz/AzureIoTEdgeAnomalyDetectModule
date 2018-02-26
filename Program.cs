@@ -97,24 +97,6 @@ namespace AzureIoTEdgeAnomalyDetectModule
             var twin = await ioTHubModuleClient.GetTwinAsync();
             await onDesiredPropertiesUpdate(twin.Properties.Desired, ioTHubModuleClient);
             var moduleTwinCollection = twin.Properties.Desired;
-            
-            //check for default desired properties
-            if (moduleTwinCollection["TemperatureMeanValue"] != null)
-            {
-                TemperatureMeanValue = moduleTwinCollection["TemperatureMeanValue"];
-            }
-            if (moduleTwinCollection["TemperatureStdDeviation"] != null)
-            {
-                TemperatureStdDeviation = moduleTwinCollection["TemperatureStdDeviation"];
-            }
-            if (moduleTwinCollection["HumidityMeanValue"] != null)
-            {
-                HumidityMeanValue = moduleTwinCollection["HumidityMeanValue"];
-            }
-            if (moduleTwinCollection["HumidityStdDeviation"] != null)
-            {
-                HumidityStdDeviation = moduleTwinCollection["HumidityStdDeviation"];
-            }
 
             await ioTHubModuleClient.OpenAsync();
 
@@ -122,6 +104,7 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
             await ioTHubModuleClient.SetInputMessageHandlerAsync("input1", MessageReceived, ioTHubModuleClient);       
 
+            Console.WriteLine("Callback for input1 set.");
         }
 
         private static async Task<MessageResponse> MessageReceived(Message message, object userContext)
@@ -131,30 +114,41 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
                 if (deviceClient == null)
                 {
-                    throw new InvalidOperationException("UserContext doesn't contain " + "expected values");
+                    throw new InvalidOperationException("UserContext doesn't contain expected values");
                 }
              
                 byte[] messageBytes = message.GetBytes();
                 string messageString = Encoding.UTF8.GetString(messageBytes);
-                Console.WriteLine($"Received message {DateTime.UtcNow.ToString()}: [{messageString}]");
+                Console.WriteLine($"Received message {DateTime.UtcNow.ToString()}: {messageString}");
 
+                DHTMessageBody messageBody = null;
                 // Get message body
-                var messageBody = JsonConvert.DeserializeObject<DHTMessageBody>(messageString);
+                try{
+                    messageBody = JsonConvert.DeserializeObject<DHTMessageBody>(messageString);                    
+                }
+                catch(Exception ex){
+                    Console.WriteLine("Cannot deserialize message.");
+                    Console.WriteLine(ex);
+                    Console.WriteLine(ex.Message);
+                }
 
-                //do the scoring
-                var prediction = AnomalyDetector.IsAnomaly(messageBody.temperature, messageBody.humidity);
+                if(messageBody != null)
+                {
+                    //do the scoring
+                    var prediction = AnomalyDetector.IsAnomaly(messageBody.temperature, messageBody.humidity);
 
-                var predictionMessage = new ScoredDHTMessageBody(messageBody, prediction);
+                    var predictionMessage = new ScoredDHTMessageBody(messageBody, prediction);
 
-                var jsonMessage = JsonConvert.SerializeObject(predictionMessage);
+                    var jsonMessage = JsonConvert.SerializeObject(predictionMessage);
 
-                var pipeMessage = new Message(Encoding.UTF8.GetBytes(jsonMessage));
+                    var pipeMessage = new Message(Encoding.UTF8.GetBytes(jsonMessage));
 
-                pipeMessage.Properties.Add("content-type", "application/json");
+                    pipeMessage.Properties.Add("content-type", "application/json");
 
-                await deviceClient.SendEventAsync("output1", pipeMessage);
+                    await deviceClient.SendEventAsync("output1", pipeMessage);
 
-                Console.WriteLine($"Scored data sent {predictionMessage.timeCreated}: {predictionMessage.temperature} |  {predictionMessage.humidity} | Anomaly {predictionMessage.IsAnomaly}");
+                    Console.WriteLine($"Scored data sent {predictionMessage.timeCreated}: {predictionMessage.temperature} |  {predictionMessage.humidity} | Anomaly {predictionMessage.IsAnomaly}");
+                }
             }
             catch(Exception ex){
                 Console.WriteLine($"Exception occured: {ex.Message}");
@@ -172,7 +166,7 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
         private static double HumidityStdDeviation {get;set;}
 
-        private static AnomalyDetector AnomalyDetector { get; set; }
+        private static AnomalyDetector AnomalyDetector { get; set; } 
 
         private static Task onDesiredPropertiesUpdate(TwinCollection desiredProperties, object userContext)
         {
@@ -222,6 +216,8 @@ namespace AzureIoTEdgeAnomalyDetectModule
 
                     reportedProperties["HumidityStdDeviation"] = HumidityStdDeviation;
                 }
+
+                AnomalyDetector = new AnomalyDetector(TemperatureMeanValue, TemperatureStdDeviation, HumidityMeanValue, HumidityStdDeviation);
 
                 if (reportedProperties.Count > 0)
                 {
